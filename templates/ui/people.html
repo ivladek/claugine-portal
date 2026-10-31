@@ -1,0 +1,95 @@
+{% load i18n %}{# People list: platform users (kind=platform) or tenant users (kind=tenant). #}
+<section class="card olist" data-key="people-{{ kind }}">
+  {% if show_archived %}{% trans "Hide archived" as toggle_label %}{% else %}{% trans "Show archived" as toggle_label %}{% endif %}
+  {% with toggle_url=archived_toggle %}
+  {% trans "Invite" as add_label %}{% trans "Add" as add2_label %}{# u03: invite, and add (a record invited later) when Settings → Platform allows it #}
+  {% if kind == 'platform' %}{% if users_add %}{% include "ui/bar.html" with add_dialog="dlg-staff-invite" add2_dialog="dlg-person-add" %}{% else %}{% include "ui/bar.html" with add_dialog="dlg-staff-invite" %}{% endif %}
+  {% else %}{% if users_add %}{% include "ui/bar.html" with add_dialog="dlg-customer-invite" add2_dialog="dlg-customer-add" %}{% else %}{% include "ui/bar.html" with add_dialog="dlg-customer-invite" %}{% endif %}{% endif %}{% endwith %}
+  <div class="table-wrap"><table class="olist-table"><thead><tr>
+    <th>{% trans "Email" %}</th><th>{% trans "Name" %}</th><th>{% trans "State" %}</th>{% if show_org %}<th>{% trans "Organization" %}</th>{% endif %}
+    {% if kind == 'tenant' %}<th>{% trans "Projects" %}</th>{% endif %}
+    {% for f, label in role_columns %}<th class="role-col" title="{{ label }}">{{ label }}</th>{% endfor %}<th></th></tr></thead><tbody>
+  {% for r in rows %}{% with u=r.u %}<tr class="orow" data-id="{% if u %}u-{{ u.pk }}{% else %}i-{{ r.invitation.pk }}{% endif %}"{% if r.state == 'archived' %} style="opacity:.55"{% endif %}>
+    <td>{% if u %}{{ u.email }}{% else %}{{ r.email }}{% endif %}</td><td>{% if u %}{{ u.full_name|default:"—" }}{% else %}<span class="muted">—</span>{% endif %}</td>
+    <td>{% if r.state == 'active' %}{% st "active" r.label %}{% elif r.state == 'blocked' %}{% st "bad" r.label %}{% elif r.state == 'invited' %}{% st "pending" r.label %}{% else %}{% st "muted" r.label %}{% endif %}</td>
+    {% if show_org %}<td><span style="display:inline-block;max-width:200px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;vertical-align:bottom">{{ r.org.name|default:"—" }}</span></td>{% endif %}
+    {% if kind == 'tenant' %}<td><small>{% if u %}{% for m in r.info.memberships %}<span class="code">{{ m.tenant.name }}</span>{% if m.role == 'tenant_admin' %}*{% endif %}{% if not forloop.last %}<br>{% endif %}{% empty %}{% if r.info.org_admin or r.info.read_only %}{% trans "all" %}{% else %}—{% endif %}{% endfor %}{% else %}{{ r.invitation.summary }}{% endif %}</small></td>{% endif %}
+    {% for f, label, on in r.roles %}<td class="role-col">{% if on %}✓{% else %}<span class="muted">—</span>{% endif %}</td>{% endfor %}
+    <td class="row-actions"><span class="stack-right">{% if u and u.pk != user.pk %}
+      {% if r.state == 'inactive' or r.state == 'invited' or r.state == 'archived' %}<button class="btn small" type="button" data-open="dlg-inv-{{ u.pk }}" style="width:100%">{% if r.state == 'invited' %}{% trans "Invite again" %}{% elif r.state == 'archived' %}{% trans "Invite back" %}{% else %}{% trans "Invite" %}{% endif %}</button>{% endif %}
+      {% if r.state == 'active' or r.state == 'blocked' %}<form class="inline" method="post" action="{% url 'toggle_user_active' u.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn {% if r.state == 'active' %}ghost{% endif %} small" style="width:100%">{% if r.state == 'active' %}{% trans "Lock" %}{% else %}{% trans "Unlock" %}{% endif %}</button></form>{% endif %}
+      {% if r.deletable and r.state != 'archived' %}<form class="inline" method="post" action="{% url 'person_delete' u.pk %}" onsubmit="return confirm('{% trans "Delete this user? They never accepted an invitation or were never approved." %}')">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn danger small" style="width:100%">{% trans "Delete" %}</button></form>
+      {% elif r.state == 'active' or r.state == 'blocked' %}<form class="inline" method="post" action="{% url 'person_archive' u.pk %}" onsubmit="return confirm('{% trans "Archive this user? They cannot sign in any more and lose their roles; they can be invited back." %}')">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn danger small" style="width:100%">{% trans "Archive" %}</button></form>{% endif %}
+    {% elif not u %}<form class="inline" method="post" action="{% url 'revoke_invitation' r.invitation.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn danger small">{% trans "Delete" %}</button></form>{% endif %}</span></td>
+  </tr>{% endwith %}
+  {% empty %}<tr><td colspan="12" class="muted">{% trans "Nobody yet." %}</td></tr>{% endfor %}</tbody></table></div>
+  {% include "ui/foot.html" %}
+  <div class="olist-detail"><div class="empty">{% trans "Select a row to see its details." %}</div>
+  {% for r in rows %}{% with u=r.u %}<div class="odetail card" data-for="{% if u %}u-{{ u.pk }}{% else %}i-{{ r.invitation.pk }}{% endif %}" hidden>
+    {% if u %}<h3>{{ u.full_name|default:u.email }}</h3>
+    <div class="grid two"><dl class="facts"><dt>{% trans "Email" %}</dt><dd>{{ u.email }}</dd><dt>{% trans "Mobile" %}</dt><dd>{{ u.phone_display|default:"—" }}</dd>
+      {% if r.org %}<dt>{% trans "Organization" %}</dt><dd>{{ r.org.name }}</dd>{% endif %}
+      <dt>{% trans "State" %}</dt><dd>{{ r.label }}{% if u.archived_at %} · {{ u.archived_at|date:"d.m.Y H:i" }}{% endif %}</dd>
+      <dt>{% trans "Last sign-in" %}</dt><dd>{{ u.last_login|date:"d.m.Y H:i"|default:"—" }}</dd></dl>
+    <dl class="facts"><dt>{% trans "Roles" %}</dt><dd>{% for f, label, on in r.roles %}{% if on %}{% tp f label %} {% endif %}{% endfor %}</dd>
+      {% if kind == 'tenant' %}<dt>{% trans "Projects" %}</dt><dd>{% for m in r.info.memberships %}<span class="code">{{ m.tenant.name }}</span> {{ m.get_role_display }}<br>{% empty %}{% if r.info.org_admin or r.info.read_only %}{% trans "every project of the organization" %}{% else %}—{% endif %}{% endfor %}</dd>{% endif %}</dl></div>
+    {% if r.directory %}<p class="muted"><small>{% trans "Sales rep in the directory (Sales reps): kept as the sales rep of organizations; no other role until invited." %}</small></p>{% endif %}
+    {% if kind == 'tenant' and user.is_super_admin and r.state == 'inactive' or kind == 'tenant' and user.is_super_admin and r.state == 'invited' %}<p class="actions to-bar"><button class="btn ghost small" type="button" data-open="dlg-pedit-{{ u.pk }}">{% trans "Edit" %}</button> <button class="btn ghost small" type="button" data-open="dlg-proles-{{ u.pk }}">{% trans "Roles" %}</button></p>{% endif %}
+    {% if r.state == 'active' or r.state == 'blocked' %}{% if u.pk != user.pk or kind == 'platform' %}<p class="actions to-bar"><button class="btn ghost small" type="button" data-open="dlg-roles-{{ u.pk }}">{% trans "Edit roles" %}</button></p>{% endif %}{% endif %}
+    {% else %}<h3>{{ r.email }}</h3><dl class="facts"><dt>{% trans "Organization" %}</dt><dd>{{ r.org.name }}</dd><dt>{% trans "Invitation" %}</dt><dd>{{ r.invitation.summary }} · {% trans "until" %} {{ r.invitation.expires_at|date:"d.m.Y H:i" }}</dd></dl>{% endif %}
+  </div>{% endwith %}{% endfor %}</div>
+</section>
+
+{# --- dialogs --- #}
+{% if user.is_super_admin and kind == 'tenant' %}{% for r in rows %}{% with u=r.u %}{% if u %}{% if r.state == 'inactive' or r.state == 'invited' %}<dialog id="dlg-pedit-{{ u.pk }}" class="card" style="max-width:520px;width:92%"><h2>{% trans "Edit" %} <small>{{ u.email }}</small></h2>
+  <p class="muted"><small>{% trans "Not active yet: the missing information can be added. A changed e-mail revokes the invitation sent to the old one." %}</small></p>
+  <form method="post" action="{% url 'person_edit' u.pk %}" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    <div class="field"><label>{% trans "Email" %}</label><input type="email" name="email" value="{{ u.email }}" required></div>
+    <div class="field"><label>{% trans "Full name" %}</label><input name="full_name" value="{{ u.full_name }}" maxlength="200" required></div>
+    <div class="field"><label>{% trans "Mobile number" %}</label><input name="phone" value="{{ u.phone_display }}" maxlength="24" placeholder="+7 701 1234567"><div class="help">{% trans "International format, starting with +." %}</div></div>
+    <div class="field"><label>{% trans "City" %}</label><select name="city" required>{% for v, l in cities %}<option value="{{ v }}"{% if v == u.city or not u.city and v == "astana" %} selected{% endif %}>{{ l }}</option>{% endfor %}</select></div>
+    <div class="actions"><button class="btn">{% trans "Save" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>
+<dialog id="dlg-proles-{{ u.pk }}" class="card" style="max-width:520px;width:92%"><h2>{% trans "Roles" %} <small>{{ u.email }}</small></h2>{# owner 2026-10-29 20:08 #}
+  <p class="muted"><small>{% trans "Not active yet: the roles are kept and are theirs once they accept an invitation." %}</small></p>
+  <form method="post" action="{% url 'person_roles' u.pk %}" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% include "ui/people_roles.html" with person=u %}
+    <div class="actions"><button class="btn">{% trans "Save" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}{% endif %}{% endwith %}{% endfor %}{% endif %}
+{% for r in rows %}{% with u=r.u %}{% if u %}
+{% if u.pk != user.pk %}{% if r.state == 'inactive' or r.state == 'invited' or r.state == 'archived' %}<dialog id="dlg-inv-{{ u.pk }}" class="card" style="max-width:520px;width:92%"><h2>{% trans "Invite" %} <small>{{ u.email }}</small></h2>
+  <p class="muted"><small>{% trans "The invitation lets them set a password, photo and two-factor authentication. The roles below are theirs once they accept." %}</small></p>
+  <form method="post" action="{% url 'invite_person' u.pk %}" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% include "ui/people_roles.html" with person=u %}
+    <div class="actions"><button class="btn">{% trans "Send invitation" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}{% endif %}
+{% if r.state == 'active' or r.state == 'blocked' %}{% if u.pk != user.pk or kind == 'platform' %}<dialog id="dlg-roles-{{ u.pk }}" class="card" style="max-width:520px;width:92%"><h2>{% trans "Roles" %} <small>{{ u.email }}</small></h2>
+  <form method="post" action="{% url 'person_roles' u.pk %}" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% include "ui/people_roles.html" with person=u %}
+    <div class="actions"><button class="btn">{% trans "Save" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}{% endif %}
+{% endif %}{% endwith %}{% endfor %}
+
+{% if kind == 'platform' and person_form %}<dialog id="dlg-staff-invite" class="card" style="max-width:560px;width:92%"><h2>{% trans "Invite a platform user" %}</h2>
+  <p class="muted"><small>{% trans "The invitation lets them set a password, photo and two-factor authentication. The roles below are theirs once they accept." %}</small></p>
+  <form method="post" action="{% url 'staff_invite_new' %}" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">{% include "includes/form.html" with form=person_form %}
+    {% for f, label in staff_roles %}<label class="check"><input type="checkbox" name="roles" value="{{ f }}"> {{ label }}</label>{% endfor %}
+    <div class="actions"><button class="btn">{% trans "Send invitation" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% if kind == 'tenant' and users_add and org_user_form %}<dialog id="dlg-customer-add" class="card" style="max-width:560px;width:92%"><h2>{% trans "Add a project user" %}</h2>
+  <p class="muted"><small>{% trans "The user is not active until invited; the invitation gives the roles." %}</small></p>
+  <form method="post" action="{% url 'customer_add' %}" class="stack">{% csrf_token %}
+    <div class="field"><label>{% trans "Organization" %}</label><select name="organization" required><option value="">—</option>{% for o in orgs %}{% if not o.archived_at %}<option value="{{ o.pk }}">{{ o.name }}</option>{% endif %}{% endfor %}</select></div>
+    {% include "includes/form.html" with form=org_user_form %}
+    <div class="actions"><button class="btn">{% trans "Add" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% if kind == 'platform' and person_form and users_add %}<dialog id="dlg-person-add" class="card" style="max-width:520px;width:92%"><h2>{% trans "Add a platform user" %}</h2>
+  <p class="muted"><small>{% trans "The user is not active and has no roles until invited; the invitation gives the roles." %}</small></p>
+  <form method="post" action="{% url 'person_add' %}" class="stack">{% csrf_token %}{% include "includes/form.html" with form=person_form %}
+  <div class="actions"><button class="btn">{% trans "Add" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+
+{% if kind == 'tenant' %}<dialog id="dlg-customer-invite" class="card" style="max-width:560px;width:92%"><h2>{% trans "Invite a project user" %}</h2>
+  <form method="post" action="{% url 'customer_invite' %}" class="stack" id="cust-inv">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}">
+    {% if show_org %}<div class="field"><label>{% trans "Organization" %}</label><select name="organization" required onchange="var v=this.value; this.form.querySelectorAll('[data-org]').forEach(function(e){e.hidden=e.dataset.org!==v; e.querySelectorAll('input').forEach(function(i){i.disabled=e.hidden;});});"><option value="">—</option>{% for o in orgs %}<option value="{{ o.pk }}">{{ o.name }}</option>{% endfor %}</select></div>{% endif %}
+    <div class="field"><label>{% trans "Email" %}</label><input name="email" type="email" required></div>
+    <label class="check"><input type="checkbox" name="org_admin"> {% trans "Org admin" %} <small class="muted">— {% trans "everything in the organization" %}</small></label>
+    <label class="check"><input type="checkbox" name="read_only"> {% trans "Read only" %} <small class="muted">— {% trans "sees every project, changes nothing" %}</small></label>
+    <div class="field"><label>{% trans "Project admin of" %}</label>
+      {% if show_org %}{% for o in orgs %}{% for oid, ts in org_tenants.items %}{% if oid == o.pk %}<div data-org="{{ o.pk }}" hidden>{% for t in ts %}<label class="check"><input type="checkbox" name="tenants" value="{{ t.pk }}" disabled> <span class="code">{{ t.name }}</span></label>{% empty %}<small class="muted">{% trans "no projects" %}</small>{% endfor %}</div>{% endif %}{% endfor %}{% endfor %}
+      {% else %}{% for t in tenants %}<label class="check"><input type="checkbox" name="tenants" value="{{ t.pk }}"> <span class="code">{{ t.name }}</span></label>{% empty %}<small class="muted">{% trans "no projects" %}</small>{% endfor %}{% endif %}
+      <div class="help">{% trans "A project admin sees and manages only these projects." %}</div></div>
+    <div class="actions"><button class="btn">{% trans "Send invitation" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}

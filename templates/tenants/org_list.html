@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% load i18n %}{% block title %}{% trans "Organizations" %}{% endblock %}
+{% block content %}
+<h1>{% trans "Organizations" %}{% if can_invite %}<span class="head-actions"><a class="btn small" href="{% url 'org_invite' %}">+ {% trans "Invite" %}</a></span>{% endif %}</h1>
+<form method="get" class="filters" data-auto><input type="search" name="q" value="{{ q }}" placeholder="{% trans 'Name or IIN/BIN' %}"><select name="kind"><option value="">{% trans "Any type" %}</option>{% for v, l in kinds %}<option value="{{ v }}" {% if v == kind %}selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+{% if show_archived %}<input type="hidden" name="archived" value="1">{% endif %}{% if q or kind %}<a class="btn ghost small" href="?{% if show_archived %}archived=1{% endif %}">{% trans "Clear" %}</a>{% endif %}
+<a class="btn ghost small" href="?{% if not show_archived %}archived=1{% endif %}">{% if show_archived %}{% trans "Hide archived" %}{% else %}{% trans "Show archived" %}{% endif %}</a><noscript><button class="btn ghost small">{% trans "Search" %}</button></noscript></form>
+<section class="card">{% if can_create %}{% url 'org_new' as add_url %}{% trans "New organization" as add_text %}{% include "tenants/_orgs.html" with list_add_url=add_url list_add_label=add_text %}{% else %}{% include "tenants/_orgs.html" %}{% endif %}</section>
+{% endblock %}

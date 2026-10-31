@@ -1,0 +1,18 @@
+# Only the code needed to deploy and run the portal goes to GitHub (owner 2026-10-30).
+# Internal material stays in this folder, out of git:
+jobs/
+docs-feed/
+_to_delete/
+git-init.sh
+claugine-app/
+.claugine-app.tgz
+*.n[0-9][0-9][0-9]
+# local data and build output
+var/
+__pycache__/
+*.pyc
+*.mo
+.DS_Store
+
+# copies made by iCloud / Finder ("name 2.py"): never in the repo
+* [2-9].*

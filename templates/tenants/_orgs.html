@@ -1,0 +1,19 @@
+{% load i18n ui %}<div class="olist" data-key="orgs-{{ list_key|default:request.resolver_match.url_name }}">
+  {% include "ui/bar.html" with title=list_title add_url=list_add_url add_label=list_add_label %}
+  <div class="table-wrap"><table class="olist-table"><thead><tr><th>{% trans "Organization" %}</th><th>{% trans "Type" %}</th><th class="num">{% trans "Users" %}</th><th class="num">{% trans "Projects" %}</th><th class="num">{% trans "Approvals" %}</th><th></th></tr></thead><tbody>
+  {% for o in orgs %}<tr class="orow" data-id="o-{{ o.pk }}">
+    <td style="max-width:420px">
+      <span class="code">{{ o.tax_id|default:"—" }}</span> <strong title="{{ o.name }}">{{ o.name }}</strong>{% if o.archived_at %} <span class="pill muted">{% trans "archived" %}</span>{% endif %}{% if o.registration == 'pending' %} {% st "pending" _("registration waiting") %}{% endif %}
+      <div class="rowsub">{% if user.is_staff_member %}<a href="{% url 'org_edit' o.pk %}">{% trans "Edit" %}</a> · {% endif %}{% trans "created" %} {{ o.created_at|date:"d.m.Y" }}{% if o.days_on_platform is not None %} · {{ o.days_on_platform }} {% trans "days" %}{% endif %} · {% trans "rep" %} {{ o.sales_rep|default:"—" }} / {% trans "KAM" %} {{ o.kam|default:"—" }}</div>
+    </td>
+    <td>{% tp o.kind o.kind %}</td>
+    <td class="num">{{ o.n_users|default:0 }}</td>
+    <td class="num">{{ o.n_tenants|default:0 }}{% if show_archived and o.n_archived %} <small class="muted">+{{ o.n_archived }}</small>{% endif %}</td>
+    <td class="num">{% if o.n_pending %}{% st "pending" o.n_pending %}{% else %}<span class="muted">0</span>{% endif %}</td>
+    <td class="row-actions"></td>
+  </tr>{% empty %}<tr><td colspan="6" class="muted">{% trans "No organizations." %}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% include "ui/foot.html" %}
+  <div class="olist-detail"><div class="empty">{% trans "Select a row to see its details." %}</div>
+  {% for o in orgs %}<div class="odetail" data-for="o-{{ o.pk }}" data-src="{% url 'org_detail' o.pk %}?partial=1{% if show_archived %}&amp;archived=1{% endif %}" hidden></div>{% endfor %}</div>
+</div>

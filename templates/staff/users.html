@@ -1,0 +1,19 @@
+{% extends "base.html" %}{% load i18n ui %}{% block title %}{% trans "Users" %}{% endblock %}
+{% block content %}
+<h1>{% trans "Users" %}</h1>
+<div class="subnav">{% for key, label in tabs %}<a class="btn {% if tab != key %}ghost{% endif %} small" href="?tab={{ key }}">{{ label }}</a>{% endfor %}</div>
+{% if last_link %}<div class="msg">{% trans "Invitation link (in case the email does not arrive):" %} <span class="code" style="word-break:break-all">{{ last_link }}</span></div>{% endif %}
+{% if tab == 'platform' %}
+<p class="muted"><small>{% trans "Roles are given with the invitation. Every role always keeps at least one active user. A super admin has every right whatever roles are ticked, and is asked to approve only in the roles ticked. A user holding several roles approves once for all of them." %}</small></p>
+{% if removals %}<section class="card" style="max-width:960px"><h2>{% trans "Super admin role: removal requests" %}</h2>
+  {% for x in removals %}<div class="stack" style="margin-bottom:10px"><div><strong>{{ x.req.target.full_name|default:x.req.target.email }}</strong> <small class="muted">{{ x.req.target.email }}</small> — {% blocktrans with by=x.req.requested_by.full_name|default:x.req.requested_by.email at=x.req.created_at|date:"d.m.Y H:i" until=x.req.deadline|date:"d.m.Y H:i" %}asked by {{ by }} on {{ at }}; open until {{ until }}{% endblocktrans %}</div>
+    <div><small>{% trans "Confirmations" %}: {% for d in x.deciders %}{{ d.full_name|default:d.email }} {% if d.pk in x.confirmed %}{% st "approved" "✓" %}{% else %}{% st "pending" _("waiting") %}{% endif %}{% if not forloop.last %}, {% endif %}{% empty %}{% trans "nobody else needs to confirm" %}{% endfor %}</small></div>
+    <div class="actions">{% if x.can_confirm %}<form class="inline" method="post" action="{% url 'super_admin_removal' x.req.pk 'confirm' %}">{% csrf_token %}<button class="btn small">{% trans "Confirm" %}</button></form>{% endif %}
+      {% if x.can_decline %}<form class="inline" method="post" action="{% url 'super_admin_removal' x.req.pk 'decline' %}">{% csrf_token %}<button class="btn ghost small">{% trans "Decline" %}</button></form>{% endif %}</div></div>{% endfor %}
+</section>{% endif %}
+{% include "ui/people.html" with kind="platform" role_columns=staff_roles show_org=False %}
+{% else %}
+<p class="muted"><small>{% trans "Org admins manage everything in their organization; project admins see and manage only their projects; read-only users see every project of the organization and change nothing." %}</small></p>
+{% include "ui/people.html" with kind="tenant" role_columns=customer_roles show_org=True %}
+{% endif %}
+{% endblock %}

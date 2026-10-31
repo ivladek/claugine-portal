@@ -1,0 +1,4 @@
+{% load i18n %}{% autoescape off %}{% if done %}{% blocktrans with target=req.target.full_name|default:req.target.email email=req.target.email %}The super admin role is taken from {{ target }} ({{ email }}): every super admin confirmed.{% endblocktrans %}{% elif expired %}{% blocktrans with target=req.target.full_name|default:req.target.email email=req.target.email %}The request to take the super admin role from {{ target }} ({{ email }}) lapsed: not every super admin confirmed within {{ hours }} hours. The role stays.{% endblocktrans %}{% else %}{% blocktrans with target=req.target.full_name|default:req.target.email email=req.target.email who=by.full_name|default:by.email %}{{ who }} declined taking the super admin role from {{ target }} ({{ email }}). The role stays.{% endblocktrans %}{% endif %}
+
+{{ link }}
+{% endautoescape %}

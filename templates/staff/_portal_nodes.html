@@ -1,0 +1,54 @@
+{% load i18n %}<section class="card" style="max-width:960px">
+  <h2>{% trans "Portal nodes" %}</h2>
+  <p class="muted">{% trans "Two app VMs on two sites host the portal: one is active and serves everyone; the other is a standby whose database follows the active one (MySQL replication). New versions: Updates below. Switching over takes the portal down for about a minute; it needs the same version on both nodes and is refused while tasks run." %}</p>
+  {% if not ha_nodes %}<p>{% blocktrans with r=ha_role %}This portal runs on one node (role: {{ r }}). The second site is added by the installer (node.env and the HA agent).{% endblocktrans %}</p>
+  {% else %}
+  <div class="table-wrap"><table><thead><tr><th>{% trans "Node" %}</th><th>{% trans "Role" %}</th><th>{% trans "Version" %}</th><th>{% trans "Database" %}</th><th class="num">{% trans "Tasks running" %}</th><th>{% trans "Last operation" %}</th></tr></thead>
+  {% for label, addr, s in ha_nodes %}<tr>
+    <td><strong>{{ s.site|default:"?" }}</strong> <small class="code">{{ addr }}</small><br><small class="muted">{% if label == 'this node' %}{% trans "this node" %}{% else %}{% trans "other node" %}{% endif %}</small></td>
+    {% if s.error %}<td colspan="5">{% st "bad" _("not reachable") %} <small>{{ s.error }}</small></td>
+    {% else %}
+    <td>{% if s.role == 'active' %}{% st "ok" _("active") %}{% elif s.role == 'standby' %}{% st "info" _("standby") %}{% elif s.role == 'new' %}{% st "warn" _("new version") %}{% else %}{% st "bad" _("maintenance") %}{% endif %}</td>
+    <td>{% if s.tag %}<strong class="code">{{ s.tag }}</strong><br>{% endif %}<small class="code">{{ s.version|truncatechars:24|default:"—" }}</small>{% if s.commit %}<br><small class="muted">GitHub <span class="code">{{ s.commit|slice:":12" }}</span></small>{% elif s.version %}<br><small class="muted">{% trans "not from GitHub" %}</small>{% endif %}</td>
+    <td><small>{% if s.db.error %}<span style="color:var(--bad)">{{ s.db.error }}</span>{% else %}{% if s.db.read_only %}{% trans "read only" %}{% else %}{% trans "writable" %}{% endif %}
+      {% if s.db.replica.source %}· {% trans "replicates from" %} <span class="code">{{ s.db.replica.source }}</span> · IO {{ s.db.replica.io }} / SQL {{ s.db.replica.sql }}{% if s.db.replica.behind != '' %} · {{ s.db.replica.behind }} s {% trans "behind" %}{% endif %}{% if s.db.replica.error %}<br><span style="color:var(--bad)">{{ s.db.replica.error }}</span>{% endif %}{% endif %}{% endif %}</small></td>
+    <td class="num">{{ s.tasks_running|default_if_none:"—" }}</td>
+    <td><small>{% if s.op.name %}{{ s.op.name }} · {% if s.op.state == 'done' %}{% st "ok" _("done") %}{% elif s.op.state == 'failed' %}{% st "bad" _("failed") %}{% else %}{% st "running" _("running") %}{% endif %}<br><span class="muted">{{ s.op.started }}{% if s.op.by %} · {{ s.op.by }}{% endif %}</span>{% else %}—{% endif %}</small></td>
+    {% endif %}</tr>
+    {% if s.op.steps %}<tr><td></td><td colspan="5"><details {% if s.op.state != 'done' %}open{% endif %}><summary><small>{% trans "Steps" %}</small></summary><ol style="margin:4px 0 0 18px;padding:0">{% for st in s.op.steps %}<li><small>{{ st.name }}: <strong>{{ st.status }}</strong>{% if st.detail %} — {{ st.detail }}{% endif %}</small></li>{% endfor %}</ol>{% if s.op.error %}<small style="color:var(--bad)">{{ s.op.error }}</small>{% endif %}</details></td></tr>{% endif %}
+  {% endfor %}</table></div>
+  {% if ha_lbs %}<p class="muted"><small>HAProxy: {% for x in ha_lbs %}<span class="code">{{ x }}</span>{% if not forloop.last %}, {% endif %}{% endfor %}</small></p>{% endif %}
+  <h3>{% trans "Nodes" %}</h3>
+  {% if ha_running %}<p>{% st "running" _("an operation is running") %} <small class="muted">{% trans "Reload the page to follow its steps." %}</small></p>
+  {% elif ha_ops %}<div class="actions" style="flex-wrap:wrap">{% for name, label, ok, why in ha_ops %}
+    <form method="post" class="inline" onsubmit="return confirm('{{ label|escapejs }}?')">{% csrf_token %}<input type="hidden" name="tab" value="portal"><input type="hidden" name="section" value="ha_op"><input type="hidden" name="op" value="{{ name }}">
+      <button class="btn {% if name == 'switchover' or name == 'new-to-active' %}{% else %}ghost{% endif %} small" {% if not ok or ha_busy and name in 'switchover new-to-active' %}disabled title="{% if why %}{{ why }}{% else %}{% trans 'tasks are running' %}{% endif %}"{% endif %}>{{ label }}</button></form>{% endfor %}</div>
+    {% if ha_busy %}<p class="muted"><small>{% blocktrans with n=ha_busy %}{{ n }} task(s) running: switching waits until they finish.{% endblocktrans %}</small></p>{% endif %}
+  {% else %}<p class="muted">{% trans "No operation on the nodes now (both must answer; the other node must be a standby or in maintenance; a new version: Updates)." %}</p>{% endif %}
+  {% endif %}
+</section>
+{% if ha_nodes %}
+<section class="card" style="max-width:960px">
+  <h2>{% trans "Updates" %}</h2>
+  <p class="muted">{% trans "New releases come from GitHub only (release tags). The standby gets a release first; then it can be tried at the test address, and only then is it installed on the active node, after a backup, with the database changes. A release with database changes is tried with “Publish the new version” instead (a copy of the database on the standby)." %}</p>
+  <dl class="facts">
+    <dt>GitHub</dt><dd>{% if gh.error %}{% st "bad" _("not reachable") %} <small>{{ gh.error }}</small>{% elif gh %}{% trans "latest release" %} <strong class="code">{{ gh_latest|default:"—" }}</strong>{% if gh.branch %} <small class="muted">({% trans "branch" %} <span class="code">{{ gh.branch }}</span>)</small>{% endif %}
+      {% if gh_latest and gh_latest == gh_installed_tag %}{% st "ok" _("installed here") %}{% elif gh_latest %}{% st "warn" _("not installed here") %}{% endif %}{% else %}—{% endif %}</dd>
+    <dt>{% trans "Test address" %}</dt><dd><a class="code" href="{{ test_url }}">{{ test_url }}</a><br><small class="muted">{% trans "The standby's version, read only, for super admins. When the standby runs the active node's version, it shows the same." %}</small></dd>
+    <dt>{% trans "Automatic updates" %}</dt><dd>
+      <form method="post" class="inline">{% csrf_token %}<input type="hidden" name="tab" value="portal"><input type="hidden" name="section" value="auto_update">
+        <label class="check"><input type="checkbox" name="auto_update" {% if auto_update %}checked{% endif %} onchange="this.form.submit()"> {% trans "install new releases on both nodes by themselves" %}</label></form>
+      <div class="help">{% trans "Off: a new release is installed only on the standby, by hand (below). On: every 10 minutes the active node looks for a newer release; the standby installs it first, and only when that worked does the active node (no tasks running, a backup, then the database changes). If a step fails, nothing more happens with that release and the super admins get an e-mail." %}</div>
+      {% if auto_update_state.checked_at %}<small class="muted">{% trans "last check" %} {{ auto_update_state.checked_at|slice:":16"|cut:"T"|default:"" }}{% if auto_update_state.result %} · {{ auto_update_state.result }}{% endif %}{% if auto_update_state.failed_tag %} · {% blocktrans with t=auto_update_state.failed_tag %}{{ t }} is skipped (it failed){% endblocktrans %}{% endif %}</small>{% endif %}</dd>
+  </dl>
+  {% if ha_running %}<p>{% st "running" _("an operation is running") %} <small class="muted">{% trans "Reload the page to follow its steps." %}</small></p>
+  {% elif gh_ops %}<h3>{% trans "Steps" %}</h3>
+  <div class="table-wrap"><table><tbody>{% for name, label, refs, help in gh_ops %}<tr><td>
+    <form method="post" class="actions" style="margin:0" onsubmit="return confirm('{{ label|escapejs }}?')">{% csrf_token %}<input type="hidden" name="tab" value="portal"><input type="hidden" name="section" value="ha_op"><input type="hidden" name="op" value="{{ name }}">
+      {% if name == 'update-standby' %}<select name="ref">{% for t in refs %}<option value="{{ t.tag }}">{{ t.tag }}{% if t.date %} · {{ t.date|slice:":10" }}{% endif %}</option>{% endfor %}</select>
+      {% elif refs %}<input type="hidden" name="ref" value="{{ refs.0.tag }}">{% endif %}
+      <button class="btn {% if name == 'update-active' or name == 'new-to-active' %}{% else %}ghost{% endif %} small" {% if ha_busy and name in 'update-active new-to-active' %}disabled title="{% trans 'tasks are running' %}"{% endif %}>{{ label }}</button></form></td>
+    <td><small class="muted">{{ help }}</small></td></tr>{% endfor %}</tbody></table></div>
+  {% elif not gh.error %}<p class="muted">{% trans "Nothing to install: both nodes run the latest release." %}</p>{% endif %}
+</section>
+{% endif %}

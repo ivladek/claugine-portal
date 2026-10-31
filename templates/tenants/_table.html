@@ -1,0 +1,19 @@
+{% load i18n %}<div class="olist" data-key="tenants-{{ list_key|default:request.resolver_match.url_name }}">
+  {% include "ui/bar.html" with title=list_title add_url=list_add_url add_label=list_add_label %}
+  <div class="table-wrap"><table class="olist-table"><thead><tr><th style="width:28px" title="{% trans 'Open OpenNebula' %}"></th><th>{% trans "Organization" %}</th><th>{% trans "Project" %}</th><th>{% trans "Type" %}</th><th>{% trans "Stage" %}</th><th>{% trans "Status" %}</th>{% if show_quota %}<th>{% trans "Quota" %}</th>{% endif %}<th>{% if user.is_staff_member %}{% trans "Review" %}{% else %}{% trans "Created" %}{% endif %}</th><th></th></tr></thead><tbody>
+  {% for t in tenants %}<tr class="orow" data-id="t-{{ t.pk }}">
+    <td>{% if t.fireedge_public_url and t.approval == 'approved' %}{% include "ui/fireedge_link.html" with url=t.fireedge_public_url %}{% endif %}</td>
+    <td>{% if t.organization %}<span title="{{ t.organization.name }}" style="display:inline-block;max-width:240px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;vertical-align:bottom">{{ t.organization.name }}</span>{% else %}{% st "warn" _("not linked") %}{% endif %}</td>
+    <td><strong>{{ t.name|default:t.title }}</strong>{% if t.approval != 'approved' %} {% st t.approval t.get_approval_display %}{% endif %}{% if user.is_super_admin or user.is_resource_manager %}<div class="rowsub"><a href="{% url 'tenant_edit_all' t.pk %}">{% trans "Edit" %}</a></div>{% endif %}</td>
+    <td>{% tp t.kind t.kind %}</td>
+    <td>{% tp t.stage t.get_stage_display %}</td>
+    <td>{% st t.status t.get_status_display %}{% if t.review_due %} <span class="pill warn" title="{% trans 'review date' %} {{ t.date_review|date:'d.m.Y' }}">{% trans "review" %}</span>{% endif %}</td>
+    {% if show_quota %}<td>{% if t.quota_status == 'ok' %}{% st "ok" "OK" %}{% elif t.quota_status == 'diff' %}<span title="{% for what, mine, theirs in t.quota_rows %}{{ what }}: {% trans 'portal' %} {{ mine }}, {% trans 'platform' %} {{ theirs }}{% if not forloop.last %}; {% endif %}{% endfor %}">{% st "warn" _("diff") %}</span>{% else %}<span class="muted">—</span>{% endif %}</td>{% endif %}
+    <td style="white-space:nowrap">{% if user.is_staff_member %}{% with a=t.review_alert %}{% if a == 'due' %}<span class="pill bad" title="{% trans 'the review date has come' %}">{{ t.date_review|date:"d.m.Y" }}</span>{% elif a == 'soon' %}<span class="pill warn" title="{% trans 'the review date is close' %}">{{ t.date_review|date:"d.m.Y" }}</span>{% elif t.date_review %}<small>{{ t.date_review|date:"d.m.Y" }}</small>{% else %}<small class="muted">—</small>{% endif %}{% endwith %}{% else %}<small>{{ t.created_at|date:"d.m.Y" }}</small>{% endif %}</td>
+    <td class="row-actions"></td>
+  </tr>{% empty %}<tr><td colspan="9" class="muted">{{ empty_text|default:_("No tenants.") }}</td></tr>{% endfor %}
+  </tbody></table></div>
+  {% include "ui/foot.html" %}
+  <div class="olist-detail"><div class="empty">{% trans "Select a row to see its details." %}</div>
+  {% for t in tenants %}<div class="odetail" data-for="t-{{ t.pk }}" data-src="{% url 'tenant_detail' t.pk %}?partial=1" hidden></div>{% endfor %}</div>
+</div>

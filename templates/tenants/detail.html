@@ -1,0 +1,161 @@
+{% extends base_template %}{% load ui %}{% load i18n %}{% block title %}{{ tenant }}{% endblock %}
+{% block content %}
+{% if base_template == "base.html" %}<p>{% if staff %}<a href="{% url 'tenant_list' %}">← {% trans "Projects" %}</a>{% else %}<a href="{% url 'my_org' %}">← {% trans "Projects" %}</a>{% endif %}</p>{% endif %}
+<h1>{{ tenant.name|default:tenant.title }}{% if tenant.name and tenant.title and tenant.title != tenant.name %} <small class="muted">· {{ tenant.title }}</small>{% endif %}</h1>
+<div class="actions" style="margin-bottom:16px">{# corrections-18: type, stage, approval (quota status), created #}
+  <span class="pill {% if tenant.kind == 'corp' %}info{% else %}muted{% endif %}">{{ tenant.get_kind_display }}</span>
+  {% tp tenant.stage tenant.stage %}
+  <span class="pill {{ tenant.approval }}">{{ tenant.get_approval_display }}</span>
+  <span class="pill {{ tenant.status }}">{% trans "Status" %}: {{ tenant.get_status_display }}</span>
+  <small class="muted">{% trans "Created" %} {{ tenant.created_at|date:"d.m.Y" }}</small>
+</div>
+{% if missing %}<div class="msg warning">{% trans "Waiting for approval by:" %} {{ missing_labels|join:", " }}.</div>{% endif %}
+{% if provision_failed %}<div class="msg error">{% trans "Provisioning failed" %}{% if provision_failed_step %} ({% trans "step" %} {{ provision_failed_step }}){% endif %}: {{ provision_failed.error }}{% if can_provision %} {% trans "Provision again goes on from what was already made." %}{% endif %}</div>
+{% elif can_provision %}<div class="msg info">{% trans "Approved, not provisioned yet: provisioning starts by itself after the approvals; it could not start or has not finished." %}{% if provision_blocked %} {% trans "Provisioning is not possible now" %}: {{ provision_blocked }}.{% endif %}</div>{% elif tenant.approval == 'approved' and deployment.state == 'running' and not provisioned_done %}<div class="msg info">{% trans "Provisioning is running; its steps are in Tasks." %}</div>{% endif %}
+{% if pending_move %}{% with pm=pending_move %}<div class="msg warning">{% blocktrans with to=pm.m.to_org.name frm=pm.m.from_org.name|default:"—" %}Move from {{ frm }} to {{ to }} waits for approval:{% endblocktrans %}
+  {% for st in pm.steps %}{{ st.label }} {% if st.done %}✓{% else %}…{% endif %}{% if not forloop.last %}, {% endif %}{% endfor %}
+  {% for st in pm.mine %}<form class="inline" method="post" action="{% url 'tenant_move_decide' tenant.pk pm.m.pk st.key %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn small">{% trans "Approve" %} · {{ st.label }}</button></form>{% endfor %}
+  {% if pm.mine %}<form class="inline" method="post" action="{% url 'tenant_move_decide' tenant.pk pm.m.pk 'reject' %}" onsubmit="var x=prompt('{% trans "Reason" %}'); if(x===null) return false; this.reason.value=x;">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><input type="hidden" name="reason"><button class="btn ghost small">{% trans "Reject" %}</button></form>{% endif %}</div>{% endwith %}{% endif %}
+{% if tenant.approval == 'rejected' %}<div class="msg error">{% trans "Not approved." %} {{ tenant.rejection_reason }}</div>{% endif %}
+{% if tenant.approval == 'cancelled' %}<div class="msg warning">{% trans "This request was cancelled." %}</div>{% endif %}
+{% if can_rm_approve or can_support_approve or can_sales_approve or can_reject or can_provision or can_cancel or can_delete %}<div class="actions" style="margin-bottom:16px">
+  {% if staff %}{% if can_rm_approve %}<button class="btn small" type="button" data-open="dlg-t-rm">{% if rm_by_super %}{% trans "Approve as super admin" %}{% else %}{% trans "Approve as resource manager" %}{% endif %}</button>{% endif %}
+  {% if can_support_approve %}<form class="inline" method="post" action="{% url 'tenant_support_approve' tenant.pk %}">{% csrf_token %}<button class="btn small">{% trans "Approve as support engineer" %}</button></form>{% endif %}
+  {% if can_sales_approve %}<form class="inline" method="post" action="{% url 'tenant_sales_approve' tenant.pk %}">{% csrf_token %}<button class="btn small">{% trans "Approve as sales rep" %}</button></form>{% endif %}
+  {% if can_reject %}<button class="btn danger small" type="button" data-open="dlg-t-reject">{% trans "Reject" %}</button>{% endif %}{% endif %}
+  {% if can_provision %}<button class="btn small" type="button" data-open="dlg-t-provision"{% if provision_blocked %} disabled title="{{ provision_blocked }}"{% endif %}>{% trans "Provision again" %}</button>{% endif %}
+  {% if can_cancel %}<form class="inline" method="post" action="{% url 'tenant_cancel' tenant.pk %}" onsubmit="return confirm('{% trans "Cancel this request?" %}')">{% csrf_token %}<button class="btn ghost small">{% trans "Cancel request" %}</button></form>{% endif %}
+  {% if can_delete %}<form class="inline" method="post" action="{% url 'tenant_delete' tenant.pk %}" onsubmit="return confirm('{% trans "Delete this request for good?" %}')">{% csrf_token %}<button class="btn danger small">{% trans "Delete request" %}</button></form>{% endif %}
+</div>{% endif %}
+
+<section class="card" id="details">
+  <div class="card-actions">{% if can_edit_all %}<a class="btn ghost small" href="{% url 'tenant_edit_all' tenant.pk %}">{% trans "Edit" %}</a>{% endif %}
+    {% if can_resend %}<form class="inline" method="post" action="{% url 'tenant_resend' tenant.pk %}" onsubmit="return confirm('{% trans "Send the credentials e-mail to the project admin again?" %}')">{% csrf_token %}<button class="btn ghost small">{% trans "Resend credentials" %}</button></form>{% endif %}
+    {% if not staff and can_invite %}<button class="btn ghost small" type="button" data-open="dlg-t-invite">+ {% trans "Invite a user" %}</button>{% endif %}</div>
+  <div class="grid details-cols">
+  <dl class="facts compact">{# corrections-18: organization, review date, contract, tenant admin, OpenNebula #}
+    <dt>{% trans "Organization" %}</dt><dd>{% if tenant.organization %}{% if staff %}<a href="{% url 'org_detail' tenant.organization.pk %}">{{ tenant.organization.name }}</a>{% else %}{{ tenant.organization.name }}{% endif %} <small class="muted nowrap">{{ tenant.organization.tax_id|default:_("no IIN/BIN") }}</small>{% else %}<span class="pill warn">{% trans "not linked" %}</span>{% endif %}</dd>
+    <dt>{% trans "Review date" %}</dt><dd>{% if tenant.date_review %}{{ tenant.date_review|date:"d.m.Y" }}{% if tenant.review_due %} {% st "warn" _("due") %}{% endif %}{% else %}—{% endif %}</dd>
+    <dt>{% trans "Project admin" %}</dt><dd>{% with a=tenant.tenant_admin %}{% if a %}{{ a.full_name|default:"—" }}<br><small><a href="mailto:{{ a.email }}" class="code">{{ a.email }}</a> · <span class="code">{{ a.phone_display|default:"—" }}</span></small>{% else %}<span class="pill warn">{% trans "not set" %}</span>{% endif %}{% endwith %}</dd>
+    <dt>OpenNebula</dt><dd>
+      <small class="muted">{% trans "group" %}</small> {% if tenant.one_group_name %}<span class="code" title="{% trans "The OpenNebula group; it cannot be renamed." %}">{{ tenant.one_group_name }}</span>{% if tenant.one_group_id is not None %} <small class="muted">#{{ tenant.one_group_id }}</small>{% elif not tenant.group_name %} <small class="muted">({% trans "fixed on approval" %})</small>{% endif %}{% else %}{% trans "named on approval" %}{% endif %}<br>
+      <small class="muted">{% trans "admin" %}</small> <span class="code">{{ tenant.one_admin_name|default:"—" }}</span>{% if tenant.one_admin_id is not None %} <small class="muted">#{{ tenant.one_admin_id }}</small>{% endif %}
+      {% if can_see_access and tenant.approval == 'approved' %}<br><small class="muted">{% trans "password" %}</small> <span id="access">{% if tenant.admin_password_encrypted %}{% if revealed %}<span class="code secret">{{ admin_password }}</span> <small class="muted">{% trans "shown once; reload hides it" %}</small>{% else %}<span class="muted">••••••••</span> {% include "ui/copy_secret.html" with which="admin" %}{% endif %}{% else %}<span class="muted">{% trans "not kept" %}</span>{% endif %}
+      {% if tenant.admin_password_encrypted and not revealed %}<form class="inline" method="post" action="{% url 'tenant_reveal_password' tenant.pk %}">{% csrf_token %}<button class="btn ghost small" title="{% trans 'Seeing it is logged' %}">{% trans "Show" %}</button></form>{% endif %}
+      {% if tenant.one_admin_id is not None %}<a class="btn ghost small" href="{% url 'tenant_password' tenant.pk %}">{% trans "Reset" %}</a>{% endif %}
+      {% if not tenant.admin_password_encrypted %}<a class="btn ghost small" href="{% url 'tenant_password_keep' tenant.pk %}">{% trans "Keep the current password" %}</a>{% endif %}</span>{% endif %}</dd>
+  </dl>
+  <dl class="facts compact roles">{# owner 2026-10-29 19:48: the platform users in a column on the right #}
+    {% with rep=tenant.sales_rep kam=tenant.organization.kam se=tenant.effective_support_engineer rm=tenant.effective_resource_manager %}
+    <dt>{% trans "Sales rep" %}</dt><dd>{% if rep %}<a href="mailto:{{ rep.email }}" title="{{ rep.full_name|default:rep.email }} · {{ rep.email }}">{{ rep.full_name|default:rep.email|truncatechars:26 }}</a>{% else %}—{% endif %}</dd>
+    {% if tenant.kind != 'corp' %}<dt>{% trans "Key account manager" %}</dt><dd>{% if kam %}<a href="mailto:{{ kam.email }}" title="{{ kam.full_name|default:kam.email }} · {{ kam.email }}">{{ kam.full_name|default:kam.email|truncatechars:26 }}</a>{% else %}—{% endif %}</dd>{% endif %}
+    <dt>{% trans "Support engineer" %}</dt><dd>{% if se %}<a href="mailto:{{ se.email }}" title="{{ se.full_name|default:se.email }} · {{ se.email }}">{{ se.full_name|default:se.email|truncatechars:26 }}</a>{% else %}<span class="muted">{% trans "any" %}</span>{% endif %}</dd>
+    <dt>{% trans "Resource manager" %}</dt><dd>{% if rm %}<a href="mailto:{{ rm.email }}" title="{{ rm.full_name|default:rm.email }} · {{ rm.email }}">{{ rm.full_name|default:rm.email|truncatechars:26 }}</a>{% else %}<span class="muted">{% trans "any" %}</span>{% endif %}</dd>
+    {% endwith %}
+  </dl>
+  </div>
+</section>
+
+{% if staff %}
+{% if can_rm_approve %}<dialog id="dlg-t-rm" class="card" style="max-width:620px;width:94%"><h2>{% if rm_by_super %}{% trans "Approve as super admin" %}{% else %}{% trans "Approve as resource manager" %}{% endif %}</h2>
+  <form method="post" action="{% url 'tenant_rm_approve' tenant.pk %}" class="stack">{% csrf_token %}{% include "includes/form.html" with form=rm_form %}
+  <div class="actions"><button class="btn">{% trans "Approve" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% if can_reject %}<dialog id="dlg-t-reject" class="card" style="max-width:520px;width:92%"><h2>{% trans "Reject" %}</h2>
+  <form method="post" action="{% url 'tenant_reject' tenant.pk %}" class="stack">{% csrf_token %}{% include "includes/form.html" with form=reject_form %}
+  <div class="actions"><button class="btn danger">{% trans "Reject" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% else %}{% if can_invite %}<dialog id="dlg-t-invite" class="card" style="max-width:520px;width:92%"><h2>{% trans "Invite a user to this project" %}</h2>
+  <form method="post" action="{% url 'tenant_invite' tenant.pk %}" class="stack">{% csrf_token %}{% include "includes/form.html" with form=invite_form %}
+  <div class="actions"><button class="btn">{% trans "Send invitation" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% endif %}
+
+
+
+{% if tenant.approval == 'pending' and tenant.order %}{% with o=tenant.order %}<section class="card" id="requested"><h2>{% trans "Requested resources" %}</h2>
+  <div class="fgrid">
+    <div><span class="k">{% trans "Site / cluster" %}</span>{{ o.site|default:"—" }}{% if o.cluster %} / {{ o.cluster|cluster_name:o.site }}{% endif %}</div>
+    <div><span class="k">vCPU</span>{{ o.cpu|default:"—" }}</div>
+    <div><span class="k">{% trans "RAM, GB" %}</span>{{ o.ram_gb|gb|default:"—" }}</div>
+    {% if o.gpu %}<div><span class="k">{% trans "GPU bundles" %}</span>{{ o.gpu }}</div>{% endif %}
+    <div><span class="k">{% trans "Storage, GB" %}</span>{{ o.disk_gb|default:"—" }}</div>
+    <div><span class="k">{% trans "Backups, GB" %}</span>{{ o.backups_gb|default:0 }}</div>
+    <div class="wide"><span class="k">{% trans "Connectivity" %}</span>{{ order_summary|default:"—" }}</div>
+    {% if o.note %}<div class="full"><span class="k">{% trans "Comment" %}</span>{{ o.note|linebreaksbr }}</div>{% endif %}
+  </div>
+</section>{% endwith %}{% endif %}
+<section class="card" id="resources"><div class="olist-bar"><h2 style="margin:0">{% trans "Resource pools" %}</h2><div class="olist-tools">
+  {% if can_history and tenant.approval == 'approved' %}<a class="btn ghost small" href="{% url 'tenant_tracking' tenant.pk %}">{% trans "Resource tracking" %}</a>{% endif %}
+  {% if can_order_pools and not pending_change %}<button class="btn small" type="button" data-open="dlg-pool-order">+ {% trans "Order resources" %}</button>{% endif %}</div></div>
+  {% if tenant.usage_at %}<p class="muted" style="margin-top:-6px"><small>{% trans "In use / quota. In use: as read from the platform" %} {{ tenant.usage_at|date:"d.m.Y H:i" }}.</small></p>{% endif %}
+  <div class="table-wrap"><table>
+  <thead><tr><th style="width:28px"></th><th>{% trans "Site" %}</th><th>{% trans "Cluster" %}</th><th class="num">vCPU</th><th class="num">{% trans "RAM, GB" %}</th><th class="num">{% trans "Bundles" %}</th><th>{% trans "Storage, GB" %}</th><th class="num">{% trans "Backups, GB" %}</th><th></th></tr></thead>
+  {% for r in records %}<tr><td>{% if tenant.fireedge_public_url and tenant.approval == 'approved' %}{% include "ui/fireedge_link.html" with url=tenant.fireedge_public_url %}{% endif %}</td>
+    <td>{{ r.site }}</td><td>{{ r.cluster|cluster_name:r.site }}</td>
+    <td class="num">{% if r.use %}<b>{{ r.use.cpu }}</b> / {% endif %}{{ r.cpu }}</td><td class="num">{% if r.use %}<b>{{ r.use.ram_gb|gb }}</b> / {% endif %}{{ r.ram_gb|gb }}</td><td class="num">{% if r.gpu %}{{ r.gpu_short|default:"GPU" }}({% if r.use %}<b>{{ r.use.gpu }}</b>/{% endif %}{{ r.gpu }}){% else %}—{% endif %}</td>
+    <td style="min-width:210px">{{ r.disk_gb }}{% if r.disk_gb %}<div class="split-bar" title="{% trans "VM disks" %} {{ r.vms_pct }}% / {% trans "images" %} {{ r.img_pct }}% / {% trans "files" %} {{ r.fil_pct }}%"><span class="a" style="width:{{ r.vms_pct }}%"></span><span class="b" style="width:{{ r.img_pct }}%"></span><span class="c" style="width:{{ r.fil_pct }}%;background:var(--warn)"></span></div>
+      <small class="muted">{% trans "VM disks" %} {% if r.use %}<b>{{ r.use.vm_disk_gb }}</b> / {% endif %}{{ r.vms_gb }} · {% trans "images" %} {% if r.site_use %}<b>{{ r.site_use.images_gb }}</b> / {% endif %}{{ r.img_gb }} · {% trans "files" %} {% if r.site_use %}<b>{{ r.site_use.files_gb }}</b> / {% endif %}{{ r.fil_gb }}</small>{% endif %}</td>
+    <td class="num">{% if r.site_use %}<b>{{ r.site_use.backups_gb }}</b> / {% endif %}{{ r.backups_gb|default_if_none:"0" }}</td>
+    <td class="row-actions"><span class="stack-right">{% if can_split and r.disk_gb %}<button class="btn ghost small" type="button" data-open="dlg-split-{{ forloop.counter }}">{% trans "Split" %}</button>{% endif %}
+      {% if can_request_change and not pending_change %}<a class="btn ghost small" href="{% url 'tenant_resource_request' tenant.pk %}">{% trans "Edit" %}</a>{% elif can_edit_resources %}<a class="btn ghost small" href="{% url 'tenant_resources' tenant.pk %}">{% trans "Resources" %}</a>{% endif %}
+      {% if can_order_pools and not pending_change %}{% if records|length > 1 %}<form class="inline" method="post" action="{% url 'tenant_pool_remove' tenant.pk %}" onsubmit="return confirm('{% trans "Remove this resource pool? A resource manager approves it; the VMs on it must be moved or deleted first." %}')">{% csrf_token %}<input type="hidden" name="site" value="{{ r.site }}"><input type="hidden" name="cluster" value="{{ r.cluster }}"><button class="btn danger small">{% trans "Remove" %}</button></form>
+      {% elif can_request_deletion or can_delete_now %}<button class="btn danger small" type="button" data-open="{% if can_delete_now %}dlg-delete-now{% else %}dlg-delete-request{% endif %}" title="{% trans "The last resource pool: removing it deletes the project" %}">{% trans "Remove" %}</button>{% endif %}{% endif %}</span></td></tr>
+  {% empty %}<tr><td colspan="9" class="muted">{% trans "No resources yet." %}</td></tr>{% endfor %}
+  {% if pending_change %}{% with c=pending_change %}<tr style="background:color-mix(in srgb, var(--warn) 8%, var(--surface))"><td></td><td colspan="2">{% if c.pool.kind == 'remove' %}{% st "pending" _("pool removal waiting for approval") %}<br>{{ c.site }} / {{ c.pool.cluster_name }}{% elif c.pool.kind %}{% st "pending" _("new pool waiting for approval") %}<br>{{ c.site }} / {{ c.pool.cluster_name }}{% if c.pool.kind == 'new_site' %} <small class="muted">({% trans "new site" %})</small>{% endif %}{% else %}{% st "pending" _("change waiting for approval") %}{% endif %}<br><small class="muted">{{ c.requested_by|default:"—" }} · {{ c.created_at|date:"d.m.Y H:i" }}</small></td>
+    <td class="num">{{ c.cpu }}</td><td class="num">{{ c.ram_gb|gb }}</td><td class="num">{{ c.gpu|default:"—" }}</td><td>{{ c.disk_gb }} <small class="muted">({% trans "VM disks" %} {{ c.vms_gb }} / {% trans "images" %} {{ c.images_gb }} / {% trans "files" %} {{ c.files_gb }})</small>{% if c.note %}<br><small>{{ c.note }}</small>{% endif %}</td>
+    <td class="num">{{ c.backups_gb }}</td>
+    <td class="row-actions">{% if can_decide_change %}<button class="btn small" type="button" data-open="dlg-rc-{{ c.pk }}">{% trans "Approve" %}</button>
+      <form class="inline" method="post" action="{% url 'tenant_resource_decide' tenant.pk c.pk 'reject' %}" onsubmit="var r=prompt('{% trans "Reason" %}'); if(r===null) return false; this.reason.value=r;">{% csrf_token %}<input type="hidden" name="reason"><button class="btn danger small">{% trans "Reject" %}</button></form>{% endif %}
+      {% if can_request_change %}<form class="inline" method="post" action="{% url 'tenant_resource_decide' tenant.pk c.pk 'cancel' %}">{% csrf_token %}<button class="btn ghost small">{% trans "Cancel" %}</button></form>{% endif %}</td></tr>{% endwith %}{% endif %}
+  </table></div>
+  {% if quota_status %}<div style="margin-top:8px"><small>{% trans "Quota on the platform" %} ({% trans "last read" %}):
+    {% if quota_status == 'ok' %}{% st "ok" "OK" %} {% trans "the same as here" %}{% else %}{% st "warn" _("diff") %}
+    {% for what, mine, theirs in quota_rows %}{{ what }}: {% trans "portal" %} <strong>{{ mine }}</strong>, {% trans "platform" %} <strong>{{ theirs }}</strong>{% if not forloop.last %} · {% endif %}{% endfor %}{% endif %}</small>
+    {% if quota_status == 'diff' and can_set_quota %}<form class="inline" method="post" action="{% url 'tenant_set_quota' tenant.pk %}" onsubmit="return confirm('{% trans "Set the quota on the platform to the values here? VMs above it keep running but cannot grow." %}')">{% csrf_token %}<button class="btn ghost small">{% trans "Set the quota on the platform" %}</button></form>{% endif %}</div>{% endif %}
+  {% if pending_change and can_decide_change %}{% include "tenants/_rc_approve.html" with c=pending_change %}{% endif %}
+  {% if can_order_pools and pool_form %}<dialog id="dlg-pool-order" class="card" style="max-width:640px;width:94%"><h2>{% trans "Order resources" %}</h2>
+    <p class="muted"><small>{% trans "Another cluster on a site of the project: vCPU and RAM (or GPU bundles) and storage; backups are the site's. A cluster on a new site also needs its backups and the connectivity of the project's type. A resource manager approves the order." %}</small></p>
+    <form method="post" action="{% url 'tenant_pool_order' tenant.pk %}" class="stack" id="pool-order-form">{% csrf_token %}
+      {% include "includes/field.html" with f=pool_form.pool %}
+      <div class="grid two" data-po="gpu">{% include "includes/field.html" with f=pool_form.gpu %}</div>
+      <div class="grid two" data-po="cpu">{% include "includes/field.html" with f=pool_form.cpu %}{% include "includes/field.html" with f=pool_form.ram_gb %}</div>
+      {% include "includes/field.html" with f=pool_form.disk_gb %}
+      <div data-po="new">{% include "includes/field.html" with f=pool_form.backups_gb %}
+        {% if 'inet' in pool_form.conns %}<div class="grid two">{% include "includes/field.html" with f=pool_form.inet_mbps %}{% include "includes/field.html" with f=pool_form.inet_main_prefix %}</div>{% endif %}
+        {% if 'corpnet' in pool_form.conns %}{% include "includes/field.html" with f=pool_form.corpnet_prefixes %}{% endif %}</div>
+      {% include "includes/field.html" with f=pool_form.note %}
+      <div class="actions"><button class="btn">{% trans "Order" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form>
+    <script>(function () { var f = document.getElementById("pool-order-form"); if (!f) return;
+      var info = {{ pool_info|safe }}, sel = f.querySelector('[name="po-pool"]');
+      function sync() { var p = info[sel.value] || {}; f.querySelectorAll("[data-po]").forEach(function (el) { var k = el.dataset.po;
+        el.style.display = (k === "gpu" ? p.gpu : k === "cpu" ? !p.gpu : p.new_site) ? "" : "none"; }); }
+      sel.addEventListener("change", sync); sync(); })();</script></dialog>{% endif %}
+  {% if can_split %}{% for r in records %}{% if r.disk_gb %}<dialog id="dlg-split-{{ forloop.counter }}" class="card" style="max-width:480px;width:92%"><h2>{% trans "Storage split" %}</h2>
+    <p class="muted">{% blocktrans with t=r.disk_gb s=r.site c=r.cluster|cluster_name:r.site %}{{ t }} GB on {{ s }} / {{ c }}: images and files take what you set, VM disks the rest. The change is applied at once, no approval needed.{% endblocktrans %}</p>
+    <form method="post" action="{% url 'tenant_storage_split' tenant.pk %}" class="stack" data-total="{{ r.disk_gb }}" oninput="var t=+this.dataset.total, i=+this.images_gb.value||0, f=+this.files_gb.value||0; this.querySelector('.vms').textContent=t-i-f; this.querySelector('button').disabled=(i+f>t);">{% csrf_token %}
+      <input type="hidden" name="site" value="{{ r.site }}"><input type="hidden" name="cluster" value="{{ r.cluster }}">
+      <div class="field"><label>{% trans "Images, GB" %}</label><input name="images_gb" type="number" min="0" max="{{ r.disk_gb }}" value="{{ r.img_gb }}" required></div>
+      <div class="field"><label>{% trans "Files, GB" %}</label><input name="files_gb" type="number" min="0" max="{{ r.disk_gb }}" value="{{ r.fil_gb }}" required></div>
+      <p>{% trans "VM disks, GB" %}: <strong class="vms">{{ r.vms_gb }}</strong></p>
+      <div class="actions"><button class="btn">{% trans "Apply" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}{% endfor %}{% endif %}
+</section>
+
+{% include "tenants/_connectivity.html" %}
+
+
+<section class="card"><div class="olist-bar"><h2 style="margin:0">{% trans "Users" %}</h2><div class="olist-tools">{% if corp_staff is not None %}<button class="btn small" type="button" data-open="dlg-t-staff">+ {% trans "Add staff" %}</button>{% endif %}</div></div>
+  <div class="table-wrap"><table>
+  {% for a in org_admins %}<tr><td>{% if a.photo %}<img class="avatar" src="{% url 'user_photo' a.pk %}" alt="">{% endif %}</td><td>{{ a.full_name }}</td><td>{{ a.email }}</td><td>{% trans "Organization admin" %}</td></tr>{% endfor %}
+  {% for m in members %}<tr><td>{% if m.user.photo %}<img class="avatar" src="{% url 'user_photo' m.user.pk %}" alt="">{% endif %}</td><td>{{ m.user.full_name }}</td><td>{{ m.user.email }}</td><td>{{ m.get_role_display }}{% if m.user.kind == 'staff' %} <span class="pill info">{% trans "staff" %}</span>{% endif %}{% if not m.user.login_enabled %} <span class="pill muted">{% trans "not activated" %}</span>{% endif %}</td>
+    <td>{% if corp_staff is not None and m.user.kind == 'staff' %}<form class="inline" method="post" action="{% url 'tenant_staff_member' tenant.pk %}">{% csrf_token %}<input type="hidden" name="user" value="{{ m.user.pk }}"><input type="hidden" name="remove" value="1"><button class="btn ghost small">{% trans "Remove" %}</button></form>{% endif %}</td></tr>{% endfor %}
+  {% if not org_admins and not members %}<tr><td class="muted">{% trans "No portal users yet." %}</td></tr>{% endif %}
+  </table></div>
+</section>
+{% if corp_staff is not None %}<dialog id="dlg-t-staff" class="card" style="max-width:480px;width:92%"><h2>{% trans "Add staff" %}</h2>
+  <p class="muted"><small>{% trans "Support engineers and super admins can be users of corporate projects." %}</small></p>
+  <form method="post" action="{% url 'tenant_staff_member' tenant.pk %}" class="stack">{% csrf_token %}
+    <div class="field"><label>{% trans "User" %}</label><select name="user" required><option value="">{% trans "Support engineer or super admin…" %}</option>{% for u in corp_staff %}<option value="{{ u.pk }}">{{ u.full_name|default:u.email }}</option>{% endfor %}</select></div>
+    <div class="field"><label>{% trans "Role" %}</label><select name="role"><option value="tenant_user">{% trans "Project user" %}</option><option value="tenant_admin">{% trans "Project admin" %}</option></select></div>
+    <div class="actions"><button class="btn">{% trans "Add as project user" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>{% endif %}
+{% include "tenants/_provision.html" %}
+{% include "tenants/_deletion.html" %}
+
+{% endblock %}

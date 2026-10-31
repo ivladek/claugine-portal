@@ -1,0 +1,9 @@
+{% load i18n %}{% autoescape off %}{% blocktrans with who=req.requested_by.full_name|default:req.requested_by.email target=req.target.full_name|default:req.target.email email=req.target.email %}{{ who }} asks to take the super admin role from {{ target }} ({{ email }}).{% endblocktrans %}
+
+{% if deciders %}{% blocktrans %}It is taken away only when every one of these super admins confirms within {{ hours }} hours:{% endblocktrans %}
+{% for d in deciders %}- {{ d.full_name|default:d.email }} <{{ d.email }}>
+{% endfor %}{% else %}{% trans "No other super admin needs to confirm: the role is taken away now." %}
+{% endif %}
+{% trans "Confirm or decline in Administration → Users → Platform:" %}
+{{ link }}
+{% endautoescape %}

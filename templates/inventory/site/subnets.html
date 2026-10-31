@@ -1,0 +1,22 @@
+{% load i18n ui %}{% if overlaps %}<section class="card"><h2 style="color:var(--bad)">{% trans "Overlapping assignments" %}</h2><ul>{% for a, b in overlaps %}<li><span class="code">{{ a.cidr }}</span> ({{ a.tenant|default:a.note }}) ↔ <span class="code">{{ b.cidr }}</span> ({{ b.tenant|default:b.note }})</li>{% endfor %}</ul></section>{% endif %}
+<section class="card olist" data-key="site-subnets-{{ site.code }}">
+  {% trans "Record an assignment" as add_label %}{% include "ui/bar.html" with add_dialog="dlg-prefix" %}
+  <div class="table-wrap"><table class="olist-table"><thead><tr><th>{% trans "Delegated subnet" %}</th><th>{% trans "Platform" %}</th><th>{% trans "Network" %}</th><th>{% trans "Type" %}</th><th>{% trans "Used" %}</th></tr></thead><tbody>
+  {% for g in groups %}{% for row in g.rows %}<tr class="orow" data-id="sn-{{ row.pool.pk }}"><td><span class="code">{{ row.pool.cidr }}</span></td><td>{{ g.label }}</td><td>{{ row.pool.segment }}</td><td>{% tp row.pool.purpose row.pool.get_purpose_display %}</td>
+    <td style="min-width:160px"><div class="bar"><span style="width:{{ row.pct }}%"></span></div><small class="muted">{{ row.used }} / {{ row.size }} ({{ row.pct }}%)</small></td></tr>{% endfor %}{% endfor %}
+  {% if outside %}<tr class="orow" data-id="sn-outside"><td colspan="4">{% trans "Assignments outside every delegated subnet" %}</td><td>{{ outside|length }}</td></tr>{% endif %}
+  </tbody></table></div>
+  {% include "ui/foot.html" %}
+  <div class="olist-detail"><div class="empty">{% trans "Select a row to see its details." %}</div>
+  {% for g in groups %}{% for row in g.rows %}<div class="odetail card" data-for="sn-{{ row.pool.pk }}" hidden><h3><span class="code">{{ row.pool.cidr }}</span> {% tp row.pool.purpose row.pool.get_purpose_display %}</h3>
+    <div class="table-wrap"><table>{% for a in row.assignments %}<tr><td><span class="code">{{ a.cidr }}</span></td><td>{% if a.tenant %}<a href="{% url 'tenant_detail' a.tenant.pk %}">{{ a.tenant }}</a>{% else %}{% tp a.kind a.get_kind_display %}{% endif %}</td><td><small>{{ a.get_kind_display }} · {{ a.get_source_display }}{% if a.note %} · {{ a.note }}{% endif %}</small></td>
+    <td class="row-actions">{% if a.source == 'manual' %}<form class="inline" method="post" action="{% url 'prefix_release' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn danger small">{% trans "Release" %}</button></form>{% endif %}</td></tr>
+    {% empty %}<tr><td class="muted">{% trans "Nothing assigned." %}</td></tr>{% endfor %}</table></div></div>{% endfor %}{% endfor %}
+  {% if outside %}<div class="odetail card" data-for="sn-outside" hidden><h3>{% trans "Assignments outside every delegated subnet" %}</h3><div class="table-wrap"><table>{% for a in outside %}<tr><td><span class="code">{{ a.cidr }}</span></td><td>{% if a.tenant %}<a href="{% url 'tenant_detail' a.tenant.pk %}">{{ a.tenant }}</a>{% else %}{{ a.note }}{% endif %}</td><td><small>{{ a.get_kind_display }} · {{ a.get_source_display }}</small></td>
+    <td class="row-actions">{% if a.source == 'manual' %}<form class="inline" method="post" action="{% url 'prefix_release' a.pk %}">{% csrf_token %}<input type="hidden" name="next" value="{{ request.get_full_path }}"><button class="btn danger small">{% trans "Release" %}</button></form>{% endif %}</td></tr>{% endfor %}</table></div></div>{% endif %}
+  </div>
+</section>
+{% if not groups %}<div class="msg warning">{% trans "No delegated subnets on this site: add BGP subnets to its exchange networks." %}</div>{% endif %}
+<dialog id="dlg-prefix" class="card" style="max-width:560px;width:92%"><h2>{% trans "Record an assignment or reservation" %}</h2>
+  <form method="post" class="stack">{% csrf_token %}{% include "includes/form.html" with form=prefix_form %}
+  <div class="actions"><button class="btn">{% trans "Save" %}</button><button class="btn ghost" type="button" data-close>{% trans "Cancel" %}</button></div></form></dialog>

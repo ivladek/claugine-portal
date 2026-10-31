@@ -1,0 +1,20 @@
+{% extends "base.html" %}{% load i18n %}{% block title %}{% if org %}{{ org.name }}{% else %}{% trans "New organization" %}{% endif %}{% endblock %}
+{% block content %}
+<p><a href="{% if org %}{% url 'org_detail' org.pk %}{% else %}{% url 'org_list' %}{% endif %}">← {% if org %}{{ org.name }}{% else %}{% trans "Organizations" %}{% endif %}</a></p>
+<h1>{% if org %}{% trans "Edit organization" %}{% else %}{% trans "New organization" %}{% endif %}</h1>
+<div class="actions" style="margin-bottom:12px">
+  <button class="btn" form="org-form">{% trans "Save" %}</button>
+  <a class="btn ghost" href="{% if org %}{% url 'org_detail' org.pk %}{% else %}{% url 'org_list' %}{% endif %}">← {% trans "Back" %}</a>
+</div>
+<form id="org-form" method="post" class="stack">{% csrf_token %}<input type="hidden" name="next" value="{{ next }}">
+<section class="card compact">
+  {% if org %}{# u05: compact edit — tax id first, then the organization's sales rep and KAM, then notes #}
+  <div class="grid three">{% include "includes/field.html" with f=form.tax_id_type %}{% include "includes/field.html" with f=form.tax_id %}{% include "includes/field.html" with f=form.name %}</div>
+  <div class="grid two">{% include "includes/field.html" with f=form.kind %}{% include "includes/field.html" with f=form.short_name %}</div>
+  {% if form.sales_rep %}<div class="grid two">{% include "includes/field.html" with f=form.sales_rep %}{% include "includes/field.html" with f=form.kam %}</div>{% endif %}
+  {% include "includes/field.html" with f=form.notes %}
+  {% else %}{% include "includes/form.html" %}{% endif %}
+</section>
+<div class="actions"><button class="btn">{% trans "Save" %}</button><a class="btn ghost" href="{% if org %}{% url 'org_detail' org.pk %}{% else %}{% url 'org_list' %}{% endif %}">{% trans "Cancel" %}</a></div>
+</form>
+{% endblock %}

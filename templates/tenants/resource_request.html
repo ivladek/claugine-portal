@@ -1,0 +1,28 @@
+{% extends "base.html" %}{% load ui %}{% load i18n %}{% block title %}{% trans "Change resources" %}{% endblock %}
+{% block content %}
+<p><a href="{% url 'tenant_detail' tenant.pk %}">← {{ tenant.one_group_name|default:tenant.name }}</a></p>
+<div class="card narrow" style="max-width:640px"><h1>{% trans "Change resources" %}</h1>
+<p class="muted">{% blocktrans with p=pool.label|default:rec.cluster %}Resource pool: {{ p }}. The change is applied when a resource manager approves it.{% endblocktrans %}</p>
+<p class="muted"><small>{% trans "Now" %}: {{ rec.cpu }} vCPU · {{ rec.ram_gb|gb }} GB RAM{% if rec.gpu %} · {{ rec.gpu }} GPU{% endif %} · {{ rec.disk_gb }} GB {% trans "storage" %} ({% trans "images" %} {{ images }} GB, {% trans "files" %} {{ files }} GB)</small></p>
+<form method="post" class="stack" id="rc">{% csrf_token %}
+  {% include "includes/form.html" %}
+  <p class="muted" id="split"></p>
+  <div class="actions"><button class="btn">{% trans "Send for approval" %}</button><a class="btn ghost" href="{% url 'tenant_detail' tenant.pk %}">{% trans "Cancel" %}</a></div>
+</form></div>
+<script>
+(function () {
+  var f = document.getElementById('rc'), disk = f.querySelector('[name="disk_gb"]');
+  var gpu = f.querySelector('[name="gpu"]'), out = document.getElementById('split');
+  var g = {% if pool.gpu %}{cores: {{ pool.gpu.cores }}, ram: {{ pool.gpu.ram_gb|gb }}, model: "{{ pool.gpu.model|escapejs }}"}{% else %}null{% endif %};
+  function show() {
+    var d = parseInt(disk.value || '0', 10), img = {{ images }}, fil = {{ files }};
+    if (img + fil > d) { img = d > 100 ? 20 : 0; fil = d > 100 ? 1 : 0; }
+    var txt = '{% trans "VM disks" %} ' + (d - img - fil) + ' GB · {% trans "images" %} ' + img + ' GB · {% trans "files" %} ' + fil + ' GB';
+    if (g && gpu) { var n = parseInt(gpu.value || '0', 10); txt = n + ' × ' + g.model + ' = ' + (n * g.cores) + ' vCPU + ' + (n * g.ram) + ' GB RAM · ' + txt; }
+    out.textContent = txt;
+  }
+  [disk, gpu].forEach(function (el) { if (el) el.addEventListener('input', show); });
+  show();
+})();
+</script>
+{% endblock %}

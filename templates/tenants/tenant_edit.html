@@ -1,0 +1,52 @@
+{% extends "base.html" %}{% load i18n %}{% block title %}{% trans "Edit project" %}: {{ tenant.name|default:tenant.title }}{% endblock %}
+{% block content %}
+<p><a href="{% url 'tenant_detail' tenant.pk %}">← {{ tenant.name|default:tenant.title }}</a></p>
+<h1>{% trans "Edit project" %}</h1>
+
+{# u05: action buttons on top, incl. back to the project #}
+<div class="actions" style="margin-bottom:16px">
+  <button class="btn" form="edit-form">{% trans "Save" %}</button>
+  <a class="btn ghost" href="{% url 'tenant_detail' tenant.pk %}">← {% trans "Back to project" %}</a>
+</div>
+
+<form id="edit-form" method="post" action="{% url 'tenant_edit_all' tenant.pk %}" class="stack">{% csrf_token %}
+<section class="card compact">
+  <fieldset><legend>{% trans "Organization" %}</legend>
+    <div class="actions" style="flex-wrap:wrap"><strong>{{ tenant.organization.name|default:"—" }}</strong>{% if tenant.organization.tax_id %} <small class="muted">{{ tenant.organization.tax_id }}</small>{% endif %}
+      {% if move_form and not pending_move %}<button class="btn ghost small" type="button" onclick="this.hidden=true;document.getElementById('t-move').hidden=false">{% trans "Move to another" %}</button>{% elif pending_move %}<small class="muted">{% trans "a move to another organization waits for approval" %}</small>{% endif %}</div>
+    {% if move_form and not pending_move %}<div id="t-move" hidden>{% include "includes/form.html" with form=move_form %}
+      <div class="help">{% trans "The move waits for the resource manager's and the new organization's sales rep's approval." %}</div></div>{% endif %}</fieldset>
+
+  {% if can_edit %}<fieldset><legend>{% trans "Project" %}</legend>
+    <div class="grid two">{% include "includes/field.html" with f=edit_form.name %}{% include "includes/field.html" with f=edit_form.title %}</div></fieldset>{% endif %}
+
+  {% if can_stage or can_status or can_review %}<fieldset><legend>{% trans "Stage, status and review" %}</legend>
+    <div class="grid three">
+      {% if can_stage %}{% include "includes/field.html" with f=stage_form.stage %}{% else %}<div class="field"><label>{% trans "Stage" %}</label><p>{{ tenant.get_stage_display }}</p></div>{% endif %}
+      {% if can_review %}{% include "includes/field.html" with f=review_form.date_review %}{% else %}<div class="field"><label>{% trans "Review date" %}</label><p>{{ tenant.date_review|date:"d.m.Y"|default:"—" }}</p></div>{% endif %}
+      <div class="field"><label>{% trans "Created" %}</label><p>{{ tenant.created_at|date:"d.m.Y"|default:"—" }}{% if tenant.days_on_platform is not None %} <small class="muted">· {% blocktrans with d=tenant.days_on_platform %}{{ d }} days on platform{% endblocktrans %}</small>{% endif %}</p></div>
+    </div>
+    {% if can_status %}<div class="grid two">{% include "includes/field.html" with f=status_form.status %}{% include "includes/field.html" with f=status_form.date_review %}</div>
+    {% include "includes/field.html" with f=status_form.note %}
+    <p class="muted"><small>{% trans "ok → paused (2 weeks at most) → suspended (1 month) → saved (archived a month later); back to ok while paused or suspended. The record and its review date change; the platform is not changed by this yet." %}</small></p>
+    {% else %}<div class="field"><label>{% trans "Status" %}</label><p>{{ tenant.get_status_display }}</p></div>{% endif %}</fieldset>{% endif %}
+
+  <fieldset><legend>{% trans "People" %}</legend><div class="grid three">
+    {% if can_admin %}<div class="field"><label for="id_ta-user">{% trans "Project admin" %}:</label><select name="ta-user" id="id_ta-user"><option value="">—</option>{% for v, l in admin_choices %}<option value="{{ v }}"{% if v == tenant.tenant_admin_id|stringformat:"s" %} selected{% endif %}>{{ l }}</option>{% endfor %}</select>
+      <div class="help">{% trans "A user of the organization: gets the project's credentials." %}{% if not admin_choices %} {% trans "The organization has no users yet." %}{% endif %}</div></div>
+    {% else %}<div class="field"><label>{% trans "Project admin" %}</label><p>{% with a=tenant.tenant_admin %}{% if a %}{{ a.full_name|default:a.email }}{% else %}—{% endif %}{% endwith %}</p></div>{% endif %}
+    {% if can_edit %}{% include "includes/field.html" with f=edit_form.support_engineer %}{% include "includes/field.html" with f=edit_form.resource_manager %}
+    {% else %}<div class="field"><label>{% trans "Support engineer" %}</label><p>{% with s=tenant.effective_support_engineer %}{% if s %}{{ s.full_name|default:s.email }}{% else %}—{% endif %}{% endwith %}</p></div>
+    <div class="field"><label>{% trans "Resource manager" %}</label><p>{% with r=tenant.effective_resource_manager %}{% if r %}{{ r.full_name|default:r.email }}{% else %}—{% endif %}{% endwith %}</p></div>{% endif %}
+    </div>
+    <div class="grid two">
+      <div class="field"><label>{% trans "Sales rep" %}</label><p>{% with rep=tenant.sales_rep %}{% if rep %}{{ rep.full_name|default:rep.email }}{% else %}—{% endif %}{% endwith %} <small class="muted">{% trans "from the organization" %}</small></p></div>
+      {% if tenant.kind != 'corp' %}<div class="field"><label>{% trans "Key account manager" %}</label><p>{% with k=tenant.organization.kam %}{% if k %}{{ k.full_name|default:k.email }}{% else %}—{% endif %}{% endwith %} <small class="muted">{% trans "from the organization" %}</small></p></div>{% endif %}
+    </div></fieldset>
+
+  {% if can_edit %}<fieldset><legend>{% trans "Notes" %}</legend>{% include "includes/field.html" with f=edit_form.notes %}</fieldset>{% endif %}
+</section>
+
+<div class="actions"><button class="btn">{% trans "Save" %}</button><a class="btn ghost" href="{% url 'tenant_detail' tenant.pk %}">{% trans "Cancel" %}</a></div>
+</form>
+{% endblock %}
