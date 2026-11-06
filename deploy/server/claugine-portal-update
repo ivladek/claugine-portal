@@ -1,0 +1,133 @@
+#!/bin/bash
+# claugine-portal-update: install a version of the portal on this node, from GitHub only (root).
+# Installed as /usr/local/sbin/claugine-portal-update by deploy/server/bootstrap.sh; the HA agent uses it too
+# (to give a node the version the other node runs).
+#
+#   claugine-portal-update                         the head of the branch in /etc/claugine-portal/dist.env
+#   claugine-portal-update --ref <branch|tag|commit>
+#   claugine-portal-update ... -- <deploy/install.sh options>   e.g. -- --no-migrate, or a fresh node's --site-url ...
+#   claugine-portal-update --status                what is installed, what GitHub has
+#   claugine-portal-update --json                  the same for the portal (HA agent): the release tags on the branch
+#
+# It fetches the repo with the node's read-only deploy key (/srv/claugine-dist, user claugine-dist), exports the
+# commit (git archive: exactly the commit, nothing else) into /var/lib/claugine-portal/src/<time>-<commit> and runs
+# that commit's deploy/install.sh. The portal's site URL is kept (portal.env SITE_URL) unless --site-url is given.
+# The installed commit is in /opt/claugine-portal/COMMIT. To go back: --ref <the earlier commit>.
+set -Eeuo pipefail
+trap 'echo "ERROR: claugine-portal-update stopped at line $LINENO: $BASH_COMMAND" >&2' ERR
+
+ROOT=/srv/claugine-dist
+CONF=/etc/claugine-portal/dist.env
+PREFIX=/opt/claugine-portal
+SRCS=/var/lib/claugine-portal/src
+KEEP=3
+REPO_URL=""; BRANCH=main; GITHUB_SSH_443=""
+[[ -r "$CONF" ]] && . "$CONF"
+GIT_SSH="ssh -i $ROOT/.ssh/id_ed25519 -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile=$ROOT/.ssh/known_hosts"
+[[ "${GITHUB_SSH_443:-}" == yes ]] && GIT_SSH="$GIT_SSH -o HostName=ssh.github.com -o Port=443 -o HostKeyAlias=github.com"
+as_dist() { (cd "$ROOT" && sudo -u claugine-dist -H env GIT_SSH_COMMAND="$GIT_SSH" "$@"); }
+git_r() { as_dist git --git-dir="$ROOT/repo.git" "$@"; }
+log() { echo "claugine-portal-update: $*"; }
+die() { echo "claugine-portal-update: ERROR: $*" >&2; exit 1; }
+
+[[ $EUID -eq 0 ]] || die "run as root"
+[[ -d "$ROOT/repo.git" ]] || die "no clone of the repo in $ROOT/repo.git: run deploy/server/from-github.sh first"
+
+REF=""; STATUS=0; JSON=0; EXTRA=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --ref) REF="$2"; shift 2 ;;
+    --status) STATUS=1; shift ;;
+    --json) JSON=1; shift ;;
+    --no-agent-restart|--no-migrate) EXTRA+=("$1"); shift ;;
+    --) shift; EXTRA+=("$@"); break ;;
+    *) die "unknown option $1 (install.sh options go after --)" ;;
+  esac
+done
+REF="${REF:-$BRANCH}"
+
+if [[ "$JSON" == 0 ]]; then
+  exec 9>/run/claugine-portal-update.lock
+  flock -n 9 || die "another update is running"
+fi
+
+git_r remote set-url origin "$REPO_URL" 2>/dev/null || true
+git_r fetch -q --prune --force origin "+refs/heads/*:refs/heads/*" "+refs/tags/*:refs/tags/*" || die "fetch from $REPO_URL failed"  # owner 2026-11-05: force tags — the public and private repos tag the same vNN on different commits, so a plain --tags fetch would clobber-fail after the source switch
+installed=$(cat "$PREFIX/COMMIT" 2>/dev/null || echo "")
+
+if [[ "$JSON" == 1 ]]; then  # release tags (v…) on the branch, newest first, and what is installed
+  head=$(git_r rev-parse "refs/heads/$BRANCH")
+  {
+    echo "branch $BRANCH $head"
+    echo "installed $installed"
+    for t in $(git_r tag --list 'v*' --sort=-v:refname | head -20); do  # owner 2026-11-05: NOT --merged "$head" — each publish is a fresh orphan commit, so a tag one release behind is not an ancestor of main; match the installed commit to its tag directly (line below) regardless of merge
+      echo "tag $t $(git_r rev-list -n1 "$t") $(git_r log -1 --format=%cI "$t")"
+    done
+  } | python3 -c '
+import json, sys
+out = {"tags": []}
+for line in sys.stdin:
+    p = line.split()
+    if p[0] == "branch":
+        out.update(branch=p[1], branch_head=p[2])
+    elif p[0] == "installed":
+        out["installed"] = p[1] if len(p) > 1 else ""
+    elif p[0] == "tag":
+        out["tags"].append({"tag": p[1], "commit": p[2], "date": p[3] if len(p) > 3 else ""})
+inst = out.get("installed", "")
+out["installed_tag"] = next((t["tag"] for t in out["tags"] if t["commit"] == inst), "")
+out["latest"] = out["tags"][0] if out["tags"] else None
+print(json.dumps(out))'
+  exit 0
+fi
+
+if [[ "$STATUS" == 1 ]]; then
+  head=$(git_r rev-parse "refs/heads/$BRANCH")
+  echo "repo:      $REPO_URL ($BRANCH)"
+  echo "branch:    ${head:0:12} $(git_r log -1 --format='%cd %s' --date=format:'%Y-%m-%d %H:%M' "$head")"
+  if [[ "$installed" =~ ^[0-9a-f]{40}$ ]]; then
+    echo "installed: ${installed:0:12} $(git_r log -1 --format='%cd %s' --date=format:'%Y-%m-%d %H:%M' "$installed" 2>/dev/null || echo '(not in the repo)')"
+    if [[ "$installed" != "$head" ]]; then
+      echo "behind:    $(git_r rev-list --count "$installed..$head" 2>/dev/null || echo '?') commit(s)"
+    fi
+  else
+    echo "installed: ${installed:-nothing from GitHub yet} (release $(cat "$PREFIX/release" 2>/dev/null || echo -))"
+  fi
+  echo "role:      $(grep -h '^ROLE=' /etc/claugine-portal/node.env 2>/dev/null | cut -d= -f2 || echo active)"
+  exit 0
+fi
+
+sha=$(git_r rev-parse --verify -q "refs/heads/$REF^{commit}" || git_r rev-parse --verify -q "refs/tags/$REF^{commit}" \
+      || git_r rev-parse --verify -q "$REF^{commit}") || die "$REF is not a branch, tag or commit of $REPO_URL"
+log "installing ${sha:0:12} ($REF): $(git_r log -1 --format=%s "$sha")"
+if [[ "$installed" =~ ^[0-9a-f]{40}$ && "$installed" != "$sha" ]]; then
+  if git_r merge-base --is-ancestor "$sha" "$installed" 2>/dev/null; then
+    log "installed now: ${installed:0:12}; going BACK $(git_r rev-list --count "$sha..$installed") commit(s):"
+    { git_r log --oneline "$sha..$installed" 2>/dev/null | head -20 | sed 's/^/    - /'; } || true
+  else
+    log "installed now: ${installed:0:12}; new commits:"
+    { git_r log --oneline "$installed..$sha" 2>/dev/null | head -20 | sed 's/^/    + /'; } || true
+  fi
+fi
+
+install -d -m 755 "$SRCS"
+src="$SRCS/$(date +%Y%m%d-%H%M%S)-${sha:0:12}"
+install -d -m 755 "$src"
+git_r archive "$sha" | tar -x -C "$src"
+rm -rf "$src/jobs" "$src/var"
+echo "$sha" > "$src/COMMIT"
+chown -R root:root "$src"
+
+site=()
+if ! printf '%s\n' "${EXTRA[@]}" | grep -qx -- "--site-url"; then
+  url=$(grep -h '^SITE_URL=' /etc/claugine-portal/portal.env 2>/dev/null | head -1 | cut -d= -f2- || true)
+  [[ -n "$url" ]] || die "a new node: give its install.sh options after --, at least --site-url https://my.provider.example"
+  site=(--site-url "$url")
+fi
+bash "$src/deploy/install.sh" "${site[@]}" "${EXTRA[@]}"
+
+# this commit's own update script and bootstrap from now on
+install -m 700 "$src/deploy/server/claugine-portal-update" /usr/local/sbin/claugine-portal-update
+
+for d in $(ls -1 "$SRCS" | sort -r | tail -n +$((KEEP + 1))); do rm -rf "${SRCS:?}/$d"; done
+log "installed ${sha:0:12} (release $(cat "$PREFIX/release"))"
